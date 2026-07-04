@@ -1,0 +1,93 @@
+# Single-droplet deploy using pre-built image from GitHub Container Registry.
+# Usage on droplet:
+#   docker compose -f docker-compose.droplet.yml pull
+#   docker compose -f docker-compose.droplet.yml up -d
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: asyncjobs
+      POSTGRES_USER: asyncjobs
+      POSTGRES_PASSWORD: asyncjobs
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U asyncjobs -d asyncjobs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ghcr.io/yashthecoder123456/async-job-processing-service:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/asyncjobs
+      DATABASE_USERNAME: asyncjobs
+      DATABASE_PASSWORD: asyncjobs
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_MANAGEMENT_URL: http://guest:guest@rabbitmq:15672
+      APP_ROLE: api
+      API_ENABLED: "true"
+      WORKER_ENABLED: "false"
+      OUTBOX_DISPATCHER_ENABLED: "false"
+      SPRING_PROFILES_ACTIVE: local
+    ports:
+      - "8080:8080"
+
+  worker:
+    image: ghcr.io/yashthecoder123456/async-job-processing-service:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/asyncjobs
+      DATABASE_USERNAME: asyncjobs
+      DATABASE_PASSWORD: asyncjobs
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      APP_ROLE: worker
+      API_ENABLED: "false"
+      WORKER_ENABLED: "true"
+      OUTBOX_DISPATCHER_ENABLED: "false"
+      WORKER_CONCURRENCY: 4
+      SPRING_PROFILES_ACTIVE: local
+
+  dispatcher:
+    image: ghcr.io/yashthecoder123456/async-job-processing-service:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/asyncjobs
+      DATABASE_USERNAME: asyncjobs
+      DATABASE_PASSWORD: asyncjobs
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      APP_ROLE: dispatcher
+      API_ENABLED: "false"
+      WORKER_ENABLED: "false"
+      OUTBOX_DISPATCHER_ENABLED: "true"
+      OUTBOX_POLL_INTERVAL_MS: 500
+      SPRING_PROFILES_ACTIVE: local

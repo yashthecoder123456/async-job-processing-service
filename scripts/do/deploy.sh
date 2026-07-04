@@ -4,14 +4,20 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TF_DIR="$ROOT_DIR/infra/terraform"
 IMAGE="${DOCKER_IMAGE:-ghcr.io/yashthecoder123456/async-job-processing-service:latest}"
 WORKER_CONCURRENCY="${WORKER_CONCURRENCY:-8}"
+SSH_PRIVATE_KEY_PATH="${SSH_PRIVATE_KEY_PATH:-$HOME/.ssh/id_rsa}"
 
 cd "$ROOT_DIR"
-mvn -q -DskipTests package
-docker build -t "$IMAGE" .
 
-if [[ -n "${GHCR_TOKEN:-}" ]]; then
-  echo "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-github}" --password-stdin
-  docker push "$IMAGE"
+if [[ "${SKIP_LOCAL_BUILD:-false}" == "true" ]]; then
+  echo "Skipping local Maven/Docker build; droplets will pull $IMAGE from registry"
+else
+  mvn -q -DskipTests package
+  docker build -t "$IMAGE" .
+
+  if [[ -n "${GHCR_TOKEN:-}" ]]; then
+    echo "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-github}" --password-stdin
+    docker push "$IMAGE"
+  fi
 fi
 
 API_IP=$(python3 -c "import json; print(json.load(open('$TF_DIR/outputs.json'))['api_droplet_ip']['value'])")
@@ -25,7 +31,7 @@ deploy_node() {
   local worker_enabled="$4"
   local dispatcher_enabled="$5"
   local port_map="$6"
-  ssh -o StrictHostKeyChecking=no root@"$ip" "docker pull $IMAGE && docker rm -f asyncjobs-$role 2>/dev/null || true && docker run -d --name asyncjobs-$role --restart unless-stopped \
+  ssh -o StrictHostKeyChecking=no -i "${SSH_PRIVATE_KEY_PATH:-$HOME/.ssh/id_rsa}" root@"$ip" "docker pull $IMAGE && docker rm -f asyncjobs-$role 2>/dev/null || true && docker run -d --name asyncjobs-$role --restart unless-stopped \
     -e DATABASE_URL='${PROD_DATABASE_URL}' \
     -e DATABASE_USERNAME='${PROD_DATABASE_USERNAME}' \
     -e DATABASE_PASSWORD='${PROD_DATABASE_PASSWORD}' \

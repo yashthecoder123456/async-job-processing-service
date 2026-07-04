@@ -5,6 +5,7 @@ target/
 .project
 .settings/
 .env
+.env.do
 infra/terraform/.terraform/
 infra/terraform/*.tfstate
 infra/terraform/*.tfstate.*
@@ -12,3 +13,4 @@ infra/terraform/outputs.json
 infra/terraform/terraform.tfvars
 *.log
 .DS_Store
+.tools/

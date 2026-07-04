@@ -24,3 +24,30 @@ resource "digitalocean_project_resources" "postgres" {
     digitalocean_database_cluster.postgres.urn
   ]
 }
+
+resource "digitalocean_database_firewall" "postgres" {
+  cluster_id = digitalocean_database_cluster.postgres.id
+
+  rule {
+    type  = "droplet"
+    value = digitalocean_droplet.api.id
+  }
+
+  rule {
+    type  = "droplet"
+    value = digitalocean_droplet.dispatcher.id
+  }
+
+  rule {
+    type  = "droplet"
+    value = digitalocean_droplet.rabbitmq.id
+  }
+
+  dynamic "rule" {
+    for_each = digitalocean_droplet.workers
+    content {
+      type  = "droplet"
+      value = rule.value.id
+    }
+  }
+}
