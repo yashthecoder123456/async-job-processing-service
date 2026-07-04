@@ -17,19 +17,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.amqp.core.Message;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.stereotype.Component;
-import java.time.Instant;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
+
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-@Component
-public class JobWorker {
+/**
+ * Executes the worker-side lifecycle after a message is pulled from RabbitMQ:
+ * load job → claim → attempt → handler → persist result → ack/nack decision.
+ */
+@Service
+@ConditionalOnProperty(name = "app.worker-enabled", havingValue = "true")
+public class JobExecutionOrchestrator {
 
-    private static final Logger log = LoggerFactory.getLogger(JobWorker.class);
+    private static final Logger log = LoggerFactory.getLogger(JobExecutionOrchestrator.class);
 
     private final JobRepository jobRepository;
     private final JobExecutionService jobExecutionService;
@@ -41,14 +46,14 @@ public class JobWorker {
     private final MeterRegistry meterRegistry;
     private final String workerId;
 
-    public JobWorker(JobRepository jobRepository,
-                     JobExecutionService jobExecutionService,
-                     DrainService drainService,
-                     JobHandler jobHandler,
-                     ObjectMapper objectMapper,
-                     AppProperties appProperties,
-                     ExecutorService jobHandlerExecutor,
-                     MeterRegistry meterRegistry) {
+    public JobExecutionOrchestrator(JobRepository jobRepository,
+                                    JobExecutionService jobExecutionService,
+                                    DrainService drainService,
+                                    JobHandler jobHandler,
+                                    ObjectMapper objectMapper,
+                                    AppProperties appProperties,
+                                    ExecutorService jobHandlerExecutor,
+                                    MeterRegistry meterRegistry) {
         this.jobRepository = jobRepository;
         this.jobExecutionService = jobExecutionService;
         this.drainService = drainService;
@@ -60,30 +65,33 @@ public class JobWorker {
         this.workerId = appProperties.worker().idPrefix() + "-" + UUID.randomUUID();
     }
 
-    @RabbitListener(queues = "${app.rabbitmq.execution-queue:job.execution.queue}", autoStartup = "false")
-    public void onMessage(Message message, Channel channel) throws Exception {
+    public void processExecutionMessage(Message message, Channel channel) throws Exception {
         long deliveryTag = message.getMessageProperties().getDeliveryTag();
 
-        if (!appProperties.workerEnabled() || !drainService.isWorkersEnabled()) {
-            log.info("Workers disabled, requeueing message");
+        if (!drainService.isWorkersEnabled()) {
+            log.info("Workers drained, requeueing execution message");
             channel.basicNack(deliveryTag, false, true);
             return;
         }
 
-        JsonNode body;
+        ExecutionMessage executionMessage;
         try {
-            body = objectMapper.readTree(message.getBody());
+            executionMessage = objectMapper.readValue(message.getBody(), ExecutionMessage.class);
         } catch (Exception e) {
-            log.error("Invalid message payload, sending to DLQ via nack without requeue");
+            log.error("Invalid execution queue payload, rejecting to DLQ");
             channel.basicNack(deliveryTag, false, false);
             return;
         }
 
-        UUID jobId = UUID.fromString(body.get("jobId").asText());
+        UUID jobId = UUID.fromString(executionMessage.jobId());
         MDC.put("jobId", jobId.toString());
+        MDC.put("correlationId", jobId.toString());
         MDC.put("workerId", workerId);
 
         try {
+            log.info("Processing execution message jobId={} attempt={} priority={}",
+                    jobId, executionMessage.attemptNumber(), executionMessage.priority());
+
             Job job = jobRepository.findById(jobId).orElse(null);
             if (job == null) {
                 log.warn("Job {} not found, acking poison message", jobId);
@@ -92,7 +100,7 @@ public class JobWorker {
             }
 
             if (job.getStatus().isTerminal() || job.getStatus() == JobStatus.CANCELLED) {
-                log.info("Skipping job {} in terminal/cancelled status {}", jobId, job.getStatus());
+                log.info("Skipping job {} in status {}", jobId, job.getStatus());
                 channel.basicAck(deliveryTag, false);
                 return;
             }
@@ -111,23 +119,31 @@ public class JobWorker {
 
             job = jobRepository.findById(jobId).orElseThrow();
             String payloadForHandler = enrichPayloadWithAttempt(job.getPayload(), attemptNumber);
+
             Timer.Sample sample = Timer.start(meterRegistry);
             JobExecutionResult result = executeWithTimeout(payloadForHandler, job.getTimeoutSeconds());
             sample.stop(meterRegistry.timer("worker.execution.duration"));
 
             jobExecutionService.completeAttempt(job, attempt, result);
+            log.info("Job {} finished with status {}", jobId, jobRepository.findById(jobId).map(Job::getStatus).orElse(null));
             channel.basicAck(deliveryTag, false);
         } catch (Exception e) {
             log.error("Infrastructure failure processing job {}", jobId, e);
             channel.basicNack(deliveryTag, false, true);
         } finally {
             MDC.remove("jobId");
+            MDC.remove("correlationId");
             MDC.remove("workerId");
         }
     }
 
+    public String workerId() {
+        return workerId;
+    }
+
     private JobExecutionResult executeWithTimeout(String payloadJson, int timeoutSeconds) throws Exception {
-        Future<JobExecutionResult> future = jobHandlerExecutor.submit(() -> jobHandler.handle(payloadJson, timeoutSeconds));
+        Future<JobExecutionResult> future = jobHandlerExecutor.submit(
+                () -> jobHandler.handle(payloadJson, timeoutSeconds));
         try {
             return future.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {

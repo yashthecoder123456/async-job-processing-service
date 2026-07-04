@@ -65,7 +65,6 @@ public class RabbitConfig {
         int concurrency = Math.max(1, appProperties.worker().concurrency());
         factory.setConcurrentConsumers(concurrency);
         factory.setMaxConcurrentConsumers(concurrency);
-        factory.setAutoStartup(false);
         return factory;
     }
 }

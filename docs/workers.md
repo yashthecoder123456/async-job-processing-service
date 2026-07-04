@@ -26,12 +26,13 @@ Key classes:
 
 | Class | Role |
 |-------|------|
-| `worker/JobWorker.java` | RabbitMQ consumer + orchestration |
+| `worker/JobExecutionQueueConsumer.java` | RabbitMQ `@RabbitListener` entry point |
+| `worker/JobExecutionOrchestrator.java` | Claim → handler → status update → ack |
+| `worker/ExecutionMessage.java` | Queue message contract |
 | `worker/JobHandler.java` | Pluggable handler interface |
 | `worker/SampleJobHandler.java` | Demo handler (success/fail/retry/timeout) |
 | `service/JobExecutionService.java` | Claim, attempts, retry, dead-letter |
-| `config/WorkerListenerBootstrap.java` | Starts listeners when worker role enabled |
-| `config/WorkerConfig.java` | Startup logging |
+| `config/ExecutionPipelineStartup.java` | Startup log for each pipeline stage |
 
 ## Local scale test
 

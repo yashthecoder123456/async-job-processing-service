@@ -12,6 +12,19 @@
 | Workers | Claim jobs atomically, execute handlers, update status |
 | `dead_letter_jobs` | Audit trail for exhausted retries |
 
+## End-to-end execution workflow (code map)
+
+| Step | Class | What happens |
+|------|-------|--------------|
+| 1. Submit | `JobController` → `JobService` | HTTP 202; same TX inserts `jobs` + `outbox_events` |
+| 2. Dispatch | `OutboxDispatcher` → `OutboxDispatchService` → `RabbitMqEventPublisher` | Poll outbox, publish `ExecutionMessage` to `job.execution.queue` |
+| 3. Consume | `JobExecutionQueueConsumer` | `@RabbitListener` on execution queue (manual ack) |
+| 4. Execute | `JobExecutionOrchestrator` → `JobHandler` | Claim job, run handler with timeout, update status |
+| 5. Poll | `JobStatusController` → `JobStatusService` | Reads `jobs` table only |
+
+Message contract: `worker/ExecutionMessage.java`  
+Queue name: `job.execution.queue` (priority 1–10)
+
 ## Full lifecycle (HTTP → result)
 
 ```mermaid
