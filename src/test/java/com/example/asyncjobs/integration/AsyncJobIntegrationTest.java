@@ -18,6 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -36,6 +37,15 @@ import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
+@TestPropertySource(properties = {
+        "app.api-enabled=true",
+        "app.worker-enabled=true",
+        "app.outbox-dispatcher-enabled=true",
+        "app.outbox.poll-interval-ms=200",
+        "app.retry.backoff-base-ms=200",
+        "app.retry.backoff-max-ms=1000",
+        "app.retry.backoff-jitter-ms=50"
+})
 class AsyncJobIntegrationTest {
 
     @Container
@@ -58,13 +68,6 @@ class AsyncJobIntegrationTest {
         registry.add("spring.rabbitmq.password", rabbit::getAdminPassword);
         registry.add("app.rabbitmq.management-url",
                 () -> "http://" + rabbit.getHost() + ":" + rabbit.getHttpPort());
-        registry.add("app.api-enabled", () -> "true");
-        registry.add("app.worker-enabled", () -> "true");
-        registry.add("app.outbox-dispatcher-enabled", () -> "true");
-        registry.add("app.retry.backoff-base-ms", () -> "200");
-        registry.add("app.retry.backoff-max-ms", () -> "1000");
-        registry.add("app.retry.backoff-jitter-ms", () -> "50");
-        registry.add("app.outbox.poll-interval-ms", () -> "200");
     }
 
     @Autowired
