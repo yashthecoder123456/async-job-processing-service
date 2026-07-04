@@ -12,7 +12,7 @@ Phased build plan for `async-job-processing-service`. Each phase is independentl
 | **4** | Transactional outbox + RabbitMQ dispatcher | ✅ Complete | unit tests ✓ |
 | **5** | Worker pool + SampleJobHandler + retry/dead-letter | ✅ Complete | unit tests ✓ |
 | **6** | Unit tests | ✅ Complete | **14 tests pass** |
-| **7** | Integration tests (Testcontainers) | ✅ Code complete | needs Docker locally |
+| **7** | Integration tests (Testcontainers) | ✅ 10 tests written | runs in GitHub Actions CI |
 | **8** | Docker Compose + smoke scripts | ✅ Code complete | needs Docker locally |
 | **9** | CI/CD, Terraform, documentation | ✅ Complete | files present |
 
