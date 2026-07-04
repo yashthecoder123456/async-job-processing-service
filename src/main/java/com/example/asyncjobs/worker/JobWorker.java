@@ -60,7 +60,7 @@ public class JobWorker {
         this.workerId = appProperties.worker().idPrefix() + "-" + UUID.randomUUID();
     }
 
-    @RabbitListener(queues = "job.execution.queue")
+    @RabbitListener(queues = "${app.rabbitmq.execution-queue:job.execution.queue}", autoStartup = "false")
     public void onMessage(Message message, Channel channel) throws Exception {
         long deliveryTag = message.getMessageProperties().getDeliveryTag();
 

@@ -2,7 +2,8 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TF_DIR="$ROOT_DIR/infra/terraform"
-IMAGE="${DOCKER_IMAGE:-ghcr.io/your-org/async-job-processing-service:latest}"
+IMAGE="${DOCKER_IMAGE:-ghcr.io/yashthecoder123456/async-job-processing-service:latest}"
+WORKER_CONCURRENCY="${WORKER_CONCURRENCY:-8}"
 
 cd "$ROOT_DIR"
 mvn -q -DskipTests package
@@ -23,26 +24,32 @@ deploy_node() {
   local api_enabled="$3"
   local worker_enabled="$4"
   local dispatcher_enabled="$5"
+  local port_map="$6"
   ssh -o StrictHostKeyChecking=no root@"$ip" "docker pull $IMAGE && docker rm -f asyncjobs-$role 2>/dev/null || true && docker run -d --name asyncjobs-$role --restart unless-stopped \
     -e DATABASE_URL='${PROD_DATABASE_URL}' \
     -e DATABASE_USERNAME='${PROD_DATABASE_USERNAME}' \
     -e DATABASE_PASSWORD='${PROD_DATABASE_PASSWORD}' \
     -e RABBITMQ_HOST='${PROD_RABBITMQ_HOST}' \
+    -e RABBITMQ_PORT='${PROD_RABBITMQ_PORT:-5672}' \
     -e RABBITMQ_USERNAME='${PROD_RABBITMQ_USERNAME}' \
     -e RABBITMQ_PASSWORD='${PROD_RABBITMQ_PASSWORD}' \
     -e APP_ROLE='$role' \
     -e API_ENABLED='$api_enabled' \
     -e WORKER_ENABLED='$worker_enabled' \
     -e OUTBOX_DISPATCHER_ENABLED='$dispatcher_enabled' \
+    -e WORKER_CONCURRENCY='${WORKER_CONCURRENCY}' \
+    -e OUTBOX_BATCH_SIZE='${OUTBOX_BATCH_SIZE:-100}' \
+    -e OUTBOX_POLL_INTERVAL_MS='${OUTBOX_POLL_INTERVAL_MS:-250}' \
+    -e DB_POOL_MAX_SIZE='${DB_POOL_MAX_SIZE:-30}' \
     -e SPRING_PROFILES_ACTIVE='prod' \
-    -p 8080:8080 \
+    $port_map \
     $IMAGE"
 }
 
-deploy_node "$API_IP" api true false false
-deploy_node "$DISPATCHER_IP" dispatcher false false true
+deploy_node "$API_IP" api true false false "-p 8080:8080"
+deploy_node "$DISPATCHER_IP" dispatcher false false true ""
 for ip in $WORKER_IPS; do
-  deploy_node "$ip" worker false true false
+  deploy_node "$ip" worker false true false ""
 done
 
 echo "Deployment complete"

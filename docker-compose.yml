@@ -68,7 +68,14 @@ services:
       WORKER_ENABLED: "true"
       OUTBOX_DISPATCHER_ENABLED: "false"
       WORKER_CONCURRENCY: 4
+      DB_POOL_MAX_SIZE: 15
       SPRING_PROFILES_ACTIVE: local
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
 
   dispatcher:
     build: .

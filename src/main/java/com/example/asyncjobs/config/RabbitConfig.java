@@ -55,12 +55,17 @@ public class RabbitConfig {
     @Bean
     public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
             ConnectionFactory connectionFactory,
-            MessageConverter jsonMessageConverter) {
+            MessageConverter jsonMessageConverter,
+            AppProperties appProperties) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(jsonMessageConverter);
         factory.setAcknowledgeMode(org.springframework.amqp.core.AcknowledgeMode.MANUAL);
         factory.setPrefetchCount(1);
+        int concurrency = Math.max(1, appProperties.worker().concurrency());
+        factory.setConcurrentConsumers(concurrency);
+        factory.setMaxConcurrentConsumers(concurrency);
+        factory.setAutoStartup(false);
         return factory;
     }
 }

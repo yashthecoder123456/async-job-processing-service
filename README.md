@@ -107,10 +107,14 @@ Reads `jobs` table only — never RabbitMQ or outbox.
 
 ## Handling high load
 
-- Scale worker containers independently (`WORKER_CONCURRENCY`, multiple worker droplets)
+- Scale worker containers: `make scale-local WORKERS=5` or set `WORKERS=2` in `make local-up`
+- Per-container consumers: `WORKER_CONCURRENCY` (RabbitMQ listener threads)
+- Multiple worker droplets: Terraform `worker_count` or `./scripts/do/scale-workers.sh N`
 - RabbitMQ priority queue (`x-max-priority=10`)
 - Outbox dispatcher batch polling with `SKIP LOCKED` for multiple dispatcher instances
 - API returns 202 immediately; execution is fully asynchronous
+
+See [docs/workers.md](docs/workers.md) for worker architecture and deploy verification.
 
 ## At-least-once semantics
 
@@ -162,6 +166,7 @@ make smoke-test              # local stack
 - [RUNBOOK.md](RUNBOOK.md)
 - [DEPLOYMENT.md](DEPLOYMENT.md)
 - [TESTING.md](TESTING.md)
+- [docs/workers.md](docs/workers.md)
 - [docs/api-examples.md](docs/api-examples.md)
 
 ## Limitations

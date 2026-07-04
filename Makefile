@@ -1,4 +1,4 @@
-.PHONY: build test integration-test local-up local-down migrate smoke-test logs clean
+.PHONY: build test integration-test local-up local-down migrate smoke-test logs clean scale-local
 
 build:
 	mvn -q -DskipTests package
@@ -11,6 +11,9 @@ integration-test:
 
 local-up:
 	./scripts/local/up.sh
+
+scale-local:
+	docker compose up -d --scale worker=$${WORKERS:-3}
 
 local-down:
 	./scripts/local/down.sh
