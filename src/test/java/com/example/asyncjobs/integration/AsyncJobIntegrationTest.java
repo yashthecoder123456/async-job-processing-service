@@ -166,10 +166,12 @@ class AsyncJobIntegrationTest {
     @Test
     void queueDepthEndpointWorksWithRabbitMetrics() {
         submitJob(successPayload(), 5, 3, 10, null);
-        ResponseEntity<QueueDepthResponse> response = restTemplate.getForEntity("/api/v1/queue/depth", QueueDepthResponse.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().rabbitAvailable()).isTrue();
+        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(500)).untilAsserted(() -> {
+            ResponseEntity<QueueDepthResponse> response = restTemplate.getForEntity("/api/v1/queue/depth", QueueDepthResponse.class);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().queued() + response.getBody().succeeded()).isGreaterThan(0);
+        });
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.example.asyncjobs.repository.OutboxEventRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -25,18 +26,31 @@ public class OutboxDispatchService {
     private final EventPublisher eventPublisher;
     private final AppProperties appProperties;
     private final MeterRegistry meterRegistry;
+    private final ObjectProvider<OutboxDispatchService> self;
 
     public OutboxDispatchService(OutboxEventRepository outboxEventRepository,
                                  EventPublisher eventPublisher,
                                  AppProperties appProperties,
-                                 MeterRegistry meterRegistry) {
+                                 MeterRegistry meterRegistry,
+                                 ObjectProvider<OutboxDispatchService> self) {
         this.outboxEventRepository = outboxEventRepository;
         this.eventPublisher = eventPublisher;
         this.appProperties = appProperties;
         this.meterRegistry = meterRegistry;
+        this.self = self;
     }
 
     public void dispatchBatch(String dispatcherId) {
+        List<OutboxEvent> events = self.getObject().findEventsToPublish();
+        meterRegistry.gauge("outbox.pending", outboxEventRepository.countByStatus(OutboxStatus.PENDING));
+
+        for (OutboxEvent event : events) {
+            self.getObject().publishEvent(dispatcherId, event.getId());
+        }
+    }
+
+    @Transactional
+    public List<OutboxEvent> findEventsToPublish() {
         Instant now = Instant.now();
         List<OutboxEvent> events = outboxEventRepository.claimPendingEvents(
                 now, appProperties.outbox().batchSize());
@@ -44,11 +58,7 @@ public class OutboxDispatchService {
             events = outboxEventRepository.findPublishableEvents(
                     now, PageRequest.of(0, appProperties.outbox().batchSize()));
         }
-        meterRegistry.gauge("outbox.pending", outboxEventRepository.countByStatus(OutboxStatus.PENDING));
-
-        for (OutboxEvent event : events) {
-            publishEvent(dispatcherId, event.getId());
-        }
+        return events;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
