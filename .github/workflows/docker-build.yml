@@ -34,11 +34,12 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       - name: Push to DigitalOcean registry (optional)
-        if: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN != '' && vars.DO_REGISTRY_NAME != '' }}
+        if: ${{ vars.DO_REGISTRY_NAME != '' }}
         env:
           DO_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           DO_REGISTRY: registry.digitalocean.com/${{ vars.DO_REGISTRY_NAME }}/async-job-processing-service
         run: |
+          if [ -z "$DO_TOKEN" ]; then echo "DIGITALOCEAN_ACCESS_TOKEN not set, skipping"; exit 0; fi
           echo "$DO_TOKEN" | docker login registry.digitalocean.com -u "$DO_TOKEN" --password-stdin
-          docker tag async-job-processing-service:ci "$DO_REGISTRY:latest"
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} "$DO_REGISTRY:latest"
           docker push "$DO_REGISTRY:latest"
