@@ -52,7 +52,11 @@ public class QueueDepthService {
             try {
                 String queueName = appProperties.rabbitmq().executionQueue();
                 String vhost = encodeVhost("/");
-                String url = managementUrl.replaceAll("/$", "") + "/api/queues/" + vhost + "/" + queueName;
+                String baseUrl = managementUrl.replaceAll("/$", "");
+                if (baseUrl.contains("@")) {
+                    baseUrl = baseUrl.replaceFirst("://[^@]+@", "://");
+                }
+                String url = baseUrl + "/api/queues/" + vhost + "/" + queueName;
 
                 JsonNode response = restClient.get()
                         .uri(url)
@@ -78,14 +82,9 @@ public class QueueDepthService {
     }
 
     private String basicAuthHeader() {
-        String credentials = appProperties.rabbitmq().managementUrl().contains("@")
-                ? ""
-                : System.getenv().getOrDefault("RABBITMQ_USERNAME", "guest") + ":"
-                + System.getenv().getOrDefault("RABBITMQ_PASSWORD", "guest");
-        if (credentials.isEmpty()) {
-            credentials = System.getenv().getOrDefault("RABBITMQ_USERNAME", "guest") + ":"
-                    + System.getenv().getOrDefault("RABBITMQ_PASSWORD", "guest");
-        }
+        String username = System.getenv().getOrDefault("RABBITMQ_USERNAME", "guest");
+        String password = System.getenv().getOrDefault("RABBITMQ_PASSWORD", "guest");
+        String credentials = username + ":" + password;
         return "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
     }
 

@@ -7,7 +7,9 @@ import com.example.asyncjobs.repository.OutboxEventRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -34,21 +36,35 @@ public class OutboxDispatchService {
         this.meterRegistry = meterRegistry;
     }
 
-    @Transactional
     public void dispatchBatch(String dispatcherId) {
         Instant now = Instant.now();
-        List<OutboxEvent> events = outboxEventRepository.claimPendingEvents(now, appProperties.outbox().batchSize());
+        List<OutboxEvent> events = outboxEventRepository.claimPendingEvents(
+                now, appProperties.outbox().batchSize());
+        if (events.isEmpty()) {
+            events = outboxEventRepository.findPublishableEvents(
+                    now, PageRequest.of(0, appProperties.outbox().batchSize()));
+        }
         meterRegistry.gauge("outbox.pending", outboxEventRepository.countByStatus(OutboxStatus.PENDING));
 
         for (OutboxEvent event : events) {
-            Instant lockedUntil = now.plusSeconds(appProperties.outbox().lockSeconds());
-            outboxEventRepository.lockEvent(event.getId(), dispatcherId, lockedUntil);
-            publishEvent(event.getId());
+            publishEvent(dispatcherId, event.getId());
         }
     }
 
-    void publishEvent(UUID eventId) {
-        OutboxEvent fresh = outboxEventRepository.findById(eventId).orElseThrow();
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void publishEvent(String dispatcherId, UUID eventId) {
+        OutboxEvent fresh = outboxEventRepository.findById(eventId).orElse(null);
+        if (fresh == null || fresh.getStatus() == OutboxStatus.PUBLISHED) {
+            return;
+        }
+        if (fresh.getPublishAfter().isAfter(Instant.now())) {
+            return;
+        }
+
+        Instant lockedUntil = Instant.now().plusSeconds(appProperties.outbox().lockSeconds());
+        outboxEventRepository.lockEvent(fresh.getId(), dispatcherId, lockedUntil);
+        fresh = outboxEventRepository.findById(eventId).orElseThrow();
+
         try {
             eventPublisher.publish(fresh);
             fresh.setStatus(OutboxStatus.PUBLISHED);

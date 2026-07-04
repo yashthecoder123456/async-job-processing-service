@@ -6,13 +6,25 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.example.asyncjobs.model.OutboxStatus;
+import org.springframework.data.domain.Pageable;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
 
-    long countByStatus(com.example.asyncjobs.model.OutboxStatus status);
+    long countByStatus(OutboxStatus status);
+
+    @Query("""
+            SELECT e FROM OutboxEvent e
+            WHERE e.status IN (com.example.asyncjobs.model.OutboxStatus.PENDING, com.example.asyncjobs.model.OutboxStatus.FAILED)
+              AND e.publishAfter <= :now
+              AND (e.lockedUntil IS NULL OR e.lockedUntil < :now)
+            ORDER BY e.createdAt
+            """)
+    List<OutboxEvent> findPublishableEvents(@Param("now") Instant now, Pageable pageable);
 
     @Query(value = """
             SELECT * FROM outbox_events

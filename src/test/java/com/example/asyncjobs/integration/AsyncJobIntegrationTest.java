@@ -7,6 +7,7 @@ import com.example.asyncjobs.dto.QueueDepthResponse;
 import com.example.asyncjobs.dto.SubmitJobRequest;
 import com.example.asyncjobs.dto.SubmitJobResponse;
 import com.example.asyncjobs.model.JobStatus;
+import com.example.asyncjobs.service.OutboxDispatchService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,8 +57,7 @@ class AsyncJobIntegrationTest {
         registry.add("spring.rabbitmq.username", rabbit::getAdminUsername);
         registry.add("spring.rabbitmq.password", rabbit::getAdminPassword);
         registry.add("app.rabbitmq.management-url",
-                () -> "http://" + rabbit.getAdminUsername() + ":" + rabbit.getAdminPassword()
-                        + "@" + rabbit.getHost() + ":" + rabbit.getHttpPort());
+                () -> "http://" + rabbit.getHost() + ":" + rabbit.getHttpPort());
         registry.add("app.api-enabled", () -> "true");
         registry.add("app.worker-enabled", () -> "true");
         registry.add("app.outbox-dispatcher-enabled", () -> "true");
@@ -76,6 +76,11 @@ class AsyncJobIntegrationTest {
     @Autowired
     private RabbitTemplate rabbitTemplate;
 
+    @Autowired
+    private OutboxDispatchService outboxDispatchService;
+
+    private static final String TEST_DISPATCHER = "integration-test-dispatcher";
+
     @BeforeEach
     void resumeQueue() {
         restTemplate.postForEntity("/api/v1/ops/resume", null, Object.class);
@@ -86,7 +91,8 @@ class AsyncJobIntegrationTest {
         SubmitJobResponse submitted = submitJob(successPayload(), 5, 3, 10, null);
         assertThat(submitted.status()).isEqualTo(JobStatus.QUEUED);
 
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(300)).untilAsserted(() -> {
+            outboxDispatchService.dispatchBatch(TEST_DISPATCHER);
             JobStatusResponse status = getStatus(submitted.jobId());
             assertThat(status.status()).isEqualTo(JobStatus.SUCCEEDED);
             assertThat(status.resultPayload()).isNotNull();
@@ -101,7 +107,8 @@ class AsyncJobIntegrationTest {
 
         SubmitJobResponse submitted = submitJob(payload, 5, 3, 10, null);
 
-        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(60)).pollInterval(Duration.ofMillis(300)).untilAsserted(() -> {
+            outboxDispatchService.dispatchBatch(TEST_DISPATCHER);
             JobStatusResponse status = getStatus(submitted.jobId());
             assertThat(status.status()).isEqualTo(JobStatus.SUCCEEDED);
             assertThat(status.attemptCount()).isGreaterThanOrEqualTo(3);
@@ -113,7 +120,8 @@ class AsyncJobIntegrationTest {
         ObjectNode payload = objectMapper.createObjectNode().put("type", "fail");
         SubmitJobResponse submitted = submitJob(payload, 5, 1, 10, null);
 
-        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(60)).pollInterval(Duration.ofMillis(300)).untilAsserted(() -> {
+            outboxDispatchService.dispatchBatch(TEST_DISPATCHER);
             JobStatusResponse status = getStatus(submitted.jobId());
             assertThat(status.status()).isEqualTo(JobStatus.DEAD_LETTERED);
         });
@@ -124,7 +132,8 @@ class AsyncJobIntegrationTest {
         ObjectNode payload = objectMapper.createObjectNode().put("type", "timeout");
         SubmitJobResponse submitted = submitJob(payload, 5, 1, 1, null);
 
-        await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(90)).pollInterval(Duration.ofMillis(300)).untilAsserted(() -> {
+            outboxDispatchService.dispatchBatch(TEST_DISPATCHER);
             JobStatusResponse status = getStatus(submitted.jobId());
             assertThat(status.status()).isEqualTo(JobStatus.DEAD_LETTERED);
         });
@@ -139,7 +148,8 @@ class AsyncJobIntegrationTest {
 
         restTemplate.postForEntity("/api/v1/jobs/{id}/cancel", null, Object.class, submitted.jobId());
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(300)).untilAsserted(() -> {
+            outboxDispatchService.dispatchBatch(TEST_DISPATCHER);
             JobStatusResponse status = getStatus(submitted.jobId());
             assertThat(status.status()).isEqualTo(JobStatus.CANCELLED);
         });
@@ -182,7 +192,8 @@ class AsyncJobIntegrationTest {
     void duplicateRabbitMqMessageDoesNotReExecuteCompletedJob() throws Exception {
         SubmitJobResponse submitted = submitJob(successPayload(), 5, 3, 10, null);
 
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(300)).untilAsserted(() -> {
+            outboxDispatchService.dispatchBatch(TEST_DISPATCHER);
             assertThat(getStatus(submitted.jobId()).status()).isEqualTo(JobStatus.SUCCEEDED);
         });
 
