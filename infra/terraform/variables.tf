@@ -45,7 +45,7 @@ variable "worker_count" {
 
 variable "docker_image" {
   type    = string
-  default = "ghcr.io/your-org/async-job-processing-service:latest"
+  default = "ghcr.io/yashthecoder123456/async-job-processing-service:latest"
 }
 
 variable "rabbitmq_username" {
