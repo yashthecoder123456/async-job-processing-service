@@ -18,7 +18,6 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.util.UUID;
@@ -28,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 @Component
-@ConditionalOnProperty(name = "app.worker-enabled", havingValue = "true")
 public class JobWorker {
 
     private static final Logger log = LoggerFactory.getLogger(JobWorker.class);
@@ -62,11 +60,11 @@ public class JobWorker {
         this.workerId = appProperties.worker().idPrefix() + "-" + UUID.randomUUID();
     }
 
-    @RabbitListener(queues = "#{@executionQueue.name}")
+    @RabbitListener(queues = "job.execution.queue")
     public void onMessage(Message message, Channel channel) throws Exception {
         long deliveryTag = message.getMessageProperties().getDeliveryTag();
 
-        if (!drainService.isWorkersEnabled()) {
+        if (!appProperties.workerEnabled() || !drainService.isWorkersEnabled()) {
             log.info("Workers disabled, requeueing message");
             channel.basicNack(deliveryTag, false, true);
             return;
