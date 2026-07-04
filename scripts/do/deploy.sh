@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TF_DIR="$ROOT_DIR/infra/terraform"
+IMAGE="${DOCKER_IMAGE:-ghcr.io/your-org/async-job-processing-service:latest}"
+
+cd "$ROOT_DIR"
+mvn -q -DskipTests package
+docker build -t "$IMAGE" .
+
+if [[ -n "${GHCR_TOKEN:-}" ]]; then
+  echo "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-github}" --password-stdin
+  docker push "$IMAGE"
+fi
+
+API_IP=$(python3 -c "import json; print(json.load(open('$TF_DIR/outputs.json'))['api_droplet_ip']['value'])")
+WORKER_IPS=$(python3 -c "import json; print(' '.join(json.load(open('$TF_DIR/outputs.json'))['worker_droplet_ips']['value']))")
+DISPATCHER_IP=$(python3 -c "import json; print(json.load(open('$TF_DIR/outputs.json'))['dispatcher_droplet_ip']['value'])")
+
+deploy_node() {
+  local ip="$1"
+  local role="$2"
+  local api_enabled="$3"
+  local worker_enabled="$4"
+  local dispatcher_enabled="$5"
+  ssh -o StrictHostKeyChecking=no root@"$ip" "docker pull $IMAGE && docker rm -f asyncjobs-$role 2>/dev/null || true && docker run -d --name asyncjobs-$role --restart unless-stopped \
+    -e DATABASE_URL='${PROD_DATABASE_URL}' \
+    -e DATABASE_USERNAME='${PROD_DATABASE_USERNAME}' \
+    -e DATABASE_PASSWORD='${PROD_DATABASE_PASSWORD}' \
+    -e RABBITMQ_HOST='${PROD_RABBITMQ_HOST}' \
+    -e RABBITMQ_USERNAME='${PROD_RABBITMQ_USERNAME}' \
+    -e RABBITMQ_PASSWORD='${PROD_RABBITMQ_PASSWORD}' \
+    -e APP_ROLE='$role' \
+    -e API_ENABLED='$api_enabled' \
+    -e WORKER_ENABLED='$worker_enabled' \
+    -e OUTBOX_DISPATCHER_ENABLED='$dispatcher_enabled' \
+    -e SPRING_PROFILES_ACTIVE='prod' \
+    -p 8080:8080 \
+    $IMAGE"
+}
+
+deploy_node "$API_IP" api true false false
+deploy_node "$DISPATCHER_IP" dispatcher false false true
+for ip in $WORKER_IPS; do
+  deploy_node "$ip" worker false true false
+done
+
+echo "Deployment complete"

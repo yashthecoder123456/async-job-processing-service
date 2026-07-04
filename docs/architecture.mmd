@@ -1,0 +1,7 @@
+flowchart LR
+  Client --> API
+  API --> PostgreSQL
+  PostgreSQL --> OutboxDispatcher
+  OutboxDispatcher --> RabbitMQ
+  RabbitMQ --> WorkerPool
+  WorkerPool --> PostgreSQL

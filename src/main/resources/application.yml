@@ -1,0 +1,110 @@
+spring:
+  application:
+    name: async-job-processing-service
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/asyncjobs}
+    username: ${DATABASE_USERNAME:asyncjobs}
+    password: ${DATABASE_PASSWORD:asyncjobs}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 1
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  pattern:
+    console: "%d{ISO8601} [%thread] %-5level %logger{36} - %msg%n"
+  level:
+    root: INFO
+    com.example.asyncjobs: INFO
+
+app:
+  role: ${APP_ROLE:all}
+  api-enabled: ${API_ENABLED:true}
+  worker-enabled: ${WORKER_ENABLED:true}
+  outbox-dispatcher-enabled: ${OUTBOX_DISPATCHER_ENABLED:true}
+  worker:
+    concurrency: ${WORKER_CONCURRENCY:4}
+    poll-interval-ms: ${WORKER_POLL_INTERVAL_MS:100}
+    id-prefix: ${WORKER_ID_PREFIX:worker}
+    lease-seconds: ${WORKER_LEASE_SECONDS:60}
+  outbox:
+    batch-size: ${OUTBOX_BATCH_SIZE:50}
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:500}
+    lock-seconds: ${OUTBOX_LOCK_SECONDS:30}
+  retry:
+    backoff-base-ms: ${BACKOFF_BASE_MS:1000}
+    backoff-max-ms: ${BACKOFF_MAX_MS:60000}
+    backoff-jitter-ms: ${BACKOFF_JITTER_MS:500}
+  drain-submissions-when-enabled: ${DRAIN_SUBMISSIONS_WHEN_ENABLED:true}
+  rabbitmq:
+    execution-queue: job.execution.queue
+    execution-dlq: job.execution.dlq
+    max-priority: 10
+    management-url: ${RABBITMQ_MANAGEMENT_URL:}
+  validation:
+    max-payload-bytes: ${MAX_PAYLOAD_BYTES:65536}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+logging:
+  level:
+    com.example.asyncjobs: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+
+app:
+  worker:
+    poll-interval-ms: 50
+  outbox:
+    poll-interval-ms: 100
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+logging:
+  config: classpath:logback-spring.xml

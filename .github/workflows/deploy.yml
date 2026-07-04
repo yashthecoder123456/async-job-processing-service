@@ -1,0 +1,43 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Docker image tag to deploy
+        required: true
+        default: latest
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy to droplets
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_USERNAME: ${{ secrets.PROD_DATABASE_USERNAME }}
+          PROD_DATABASE_PASSWORD: ${{ secrets.PROD_DATABASE_PASSWORD }}
+          PROD_RABBITMQ_HOST: ${{ secrets.PROD_RABBITMQ_HOST }}
+          PROD_RABBITMQ_USERNAME: ${{ secrets.PROD_RABBITMQ_USERNAME }}
+          PROD_RABBITMQ_PASSWORD: ${{ secrets.PROD_RABBITMQ_PASSWORD }}
+          API_IP: ${{ vars.PROD_API_IP }}
+          DISPATCHER_IP: ${{ vars.PROD_DISPATCHER_IP }}
+          WORKER_IPS: ${{ vars.PROD_WORKER_IPS }}
+        run: |
+          chmod +x scripts/do/deploy.sh
+          ./scripts/do/deploy.sh
+
+      - name: Production smoke test
+        env:
+          PROD_API_URL: ${{ vars.PROD_API_URL }}
+        run: |
+          chmod +x scripts/do/smoke-test-prod.sh
+          ./scripts/do/smoke-test-prod.sh

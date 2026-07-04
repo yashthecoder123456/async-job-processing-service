@@ -1,0 +1,44 @@
+name: Docker Build
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Push to DigitalOcean registry (optional)
+        if: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN != '' && vars.DO_REGISTRY_NAME != '' }}
+        env:
+          DO_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          DO_REGISTRY: registry.digitalocean.com/${{ vars.DO_REGISTRY_NAME }}/async-job-processing-service
+        run: |
+          echo "$DO_TOKEN" | docker login registry.digitalocean.com -u "$DO_TOKEN" --password-stdin
+          docker tag async-job-processing-service:ci "$DO_REGISTRY:latest"
+          docker push "$DO_REGISTRY:latest"

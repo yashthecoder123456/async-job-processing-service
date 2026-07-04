@@ -1,0 +1,26 @@
+spring:
+  datasource:
+    url: jdbc:tc:postgresql:16:///asyncjobs
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  rabbitmq:
+    host: localhost
+    port: 5672
+
+app:
+  worker:
+    poll-interval-ms: 50
+    concurrency: 2
+  outbox:
+    poll-interval-ms: 100
+    batch-size: 20
+  retry:
+    backoff-base-ms: 100
+    backoff-max-ms: 1000
+    backoff-jitter-ms: 50
+
+logging:
+  level:
+    com.example.asyncjobs: INFO
