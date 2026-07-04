@@ -81,6 +81,7 @@ public class JobWorker {
 
         UUID jobId = UUID.fromString(body.get("jobId").asText());
         MDC.put("jobId", jobId.toString());
+        MDC.put("workerId", workerId);
 
         try {
             Job job = jobRepository.findById(jobId).orElse(null);
@@ -96,15 +97,7 @@ public class JobWorker {
                 return;
             }
 
-            Instant now = Instant.now();
-            int claimed = jobRepository.claimJob(
-                    jobId,
-                    workerId,
-                    now.plusSeconds(appProperties.worker().leaseSeconds()),
-                    now
-            );
-
-            if (claimed == 0) {
+            if (!jobExecutionService.tryClaim(jobId, workerId, appProperties.worker().leaseSeconds())) {
                 log.info("Could not claim job {}, acking duplicate/stale message", jobId);
                 channel.basicAck(deliveryTag, false);
                 return;
@@ -129,6 +122,7 @@ public class JobWorker {
             channel.basicNack(deliveryTag, false, true);
         } finally {
             MDC.remove("jobId");
+            MDC.remove("workerId");
         }
     }
 
