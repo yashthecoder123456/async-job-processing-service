@@ -18,6 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.amqp.rabbit.listener.RabbitListenerEndpointRegistry;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -82,11 +83,16 @@ class AsyncJobIntegrationTest {
     @Autowired
     private OutboxDispatchService outboxDispatchService;
 
+    @Autowired
+    private RabbitListenerEndpointRegistry listenerRegistry;
+
     private static final String TEST_DISPATCHER = "integration-test-dispatcher";
 
     @BeforeEach
-    void resumeQueue() {
+    void resumeQueueAndWaitForListeners() {
         restTemplate.postForEntity("/api/v1/ops/resume", null, Object.class);
+        await().atMost(Duration.ofSeconds(30)).until(() ->
+                listenerRegistry.getListenerContainers().stream().anyMatch(c -> c.isRunning()));
     }
 
     @Test

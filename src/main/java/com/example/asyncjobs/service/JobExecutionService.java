@@ -12,6 +12,7 @@ import com.example.asyncjobs.repository.JobAttemptRepository;
 import com.example.asyncjobs.repository.JobRepository;
 import com.example.asyncjobs.repository.OutboxEventRepository;
 import com.example.asyncjobs.worker.JobExecutionResult;
+import jakarta.persistence.EntityManager;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ public class JobExecutionService {
     private final OutboxService outboxService;
     private final RetryService retryService;
     private final MeterRegistry meterRegistry;
+    private final EntityManager entityManager;
 
     public JobExecutionService(JobRepository jobRepository,
                                JobAttemptRepository jobAttemptRepository,
@@ -37,7 +39,8 @@ public class JobExecutionService {
                                OutboxEventRepository outboxEventRepository,
                                OutboxService outboxService,
                                RetryService retryService,
-                               MeterRegistry meterRegistry) {
+                               MeterRegistry meterRegistry,
+                               EntityManager entityManager) {
         this.jobRepository = jobRepository;
         this.jobAttemptRepository = jobAttemptRepository;
         this.deadLetterJobRepository = deadLetterJobRepository;
@@ -45,6 +48,17 @@ public class JobExecutionService {
         this.outboxService = outboxService;
         this.retryService = retryService;
         this.meterRegistry = meterRegistry;
+        this.entityManager = entityManager;
+    }
+
+    @Transactional
+    public boolean tryClaim(UUID jobId, String workerId, int leaseSeconds) {
+        Instant now = Instant.now();
+        if (jobRepository.claimJob(jobId, workerId, now.plusSeconds(leaseSeconds), now) == 0) {
+            return false;
+        }
+        entityManager.clear();
+        return true;
     }
 
     @Transactional
