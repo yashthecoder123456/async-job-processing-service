@@ -42,7 +42,23 @@ class SampleJobHandlerTest {
     }
 
     @Test
-    void timeoutPayloadBlocksLongerThanTimeout() throws Exception {
+    void unknownPayloadTypeIsNotRetryable() throws Exception {
+        JobExecutionResult result = handler.handle("{\"type\":\"unknown\"}", 5);
+        assertFalse(result.success());
+        assertFalse(result.retryable());
+    }
+
+    @Test
+    void timeoutPayloadBlocksLongerThanTimeoutSeconds() throws Exception {
+        String payload = "{\"type\":\"timeout\"}";
+        long start = System.currentTimeMillis();
+        JobExecutionResult result = handler.handle(payload, 1);
+        assertTrue(result.success());
+        assertTrue(System.currentTimeMillis() - start >= 1000);
+    }
+
+    @Test
+    void sleepPayloadCompletesAfterDelay() throws Exception {
         long start = System.currentTimeMillis();
         String payload = "{\"type\":\"sleep\",\"sleepMs\":50}";
         JobExecutionResult result = handler.handle(payload, 5);

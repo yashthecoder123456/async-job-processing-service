@@ -65,11 +65,47 @@ class JobServiceCancelTest {
     }
 
     @Test
+    void cancelRetryScheduledJobSucceeds() {
+        UUID jobId = UUID.randomUUID();
+        Job job = new Job();
+        job.setId(jobId);
+        job.setStatus(JobStatus.RETRY_SCHEDULED);
+        when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+        when(outboxService.createLifecycleEvent(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new com.example.asyncjobs.model.OutboxEvent());
+
+        var response = jobService.cancelJob(jobId);
+        assertEquals(JobStatus.CANCELLED, response.status());
+    }
+
+    @Test
     void cancelRunningJobRejected() {
         UUID jobId = UUID.randomUUID();
         Job job = new Job();
         job.setId(jobId);
         job.setStatus(JobStatus.RUNNING);
+        when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+
+        assertThrows(IllegalStateException.class, () -> jobService.cancelJob(jobId));
+    }
+
+    @Test
+    void cancelSucceededJobRejected() {
+        UUID jobId = UUID.randomUUID();
+        Job job = new Job();
+        job.setId(jobId);
+        job.setStatus(JobStatus.SUCCEEDED);
+        when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+
+        assertThrows(IllegalStateException.class, () -> jobService.cancelJob(jobId));
+    }
+
+    @Test
+    void cancelDeadLetteredJobRejected() {
+        UUID jobId = UUID.randomUUID();
+        Job job = new Job();
+        job.setId(jobId);
+        job.setStatus(JobStatus.DEAD_LETTERED);
         when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
 
         assertThrows(IllegalStateException.class, () -> jobService.cancelJob(jobId));

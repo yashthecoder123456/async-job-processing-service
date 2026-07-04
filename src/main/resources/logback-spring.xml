@@ -6,6 +6,7 @@
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
                 <includeMdcKeyName>correlationId</includeMdcKeyName>
                 <includeMdcKeyName>jobId</includeMdcKeyName>
+                <includeMdcKeyName>workerId</includeMdcKeyName>
             </encoder>
         </appender>
         <root level="INFO">

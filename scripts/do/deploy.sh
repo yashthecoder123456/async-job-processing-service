@@ -54,4 +54,22 @@ for ip in $WORKER_IPS; do
   deploy_node "$ip" worker false true false ""
 done
 
+echo "Waiting for API health (Flyway migrations run on startup)..."
+for i in $(seq 1 60); do
+  if curl -sf "http://${API_IP}:8080/actuator/health" | grep -q UP; then
+    echo "API healthy after ${i} attempt(s)"
+    break
+  fi
+  if [[ "$i" -eq 60 ]]; then
+    echo "API did not become healthy in time"
+    exit 1
+  fi
+  sleep 5
+done
+
+if [[ -n "${RUN_SMOKE_TEST:-true}" ]]; then
+  export PROD_API_URL="http://${API_IP}:8080"
+  "$ROOT_DIR/scripts/do/smoke-test-prod.sh"
+fi
+
 echo "Deployment complete"

@@ -38,7 +38,7 @@ public class SampleJobHandler implements JobHandler {
                         java.util.Map.of("status", "ok", "sleptMs", sleepMs)));
             }
             case "timeout" -> {
-                long blockMs = (timeoutSeconds + 5L) * 1000L;
+                long blockMs = (timeoutSeconds + 1L) * 1000L;
                 Thread.sleep(blockMs);
                 yield JobExecutionResult.success(objectMapper.writeValueAsString(
                         java.util.Map.of("status", "unexpected-success-after-timeout")));

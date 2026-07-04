@@ -1,10 +1,13 @@
 package com.example.asyncjobs.service;
 
 import com.example.asyncjobs.config.AppProperties;
+import com.example.asyncjobs.exception.ValidationException;
 import com.example.asyncjobs.dto.SubmitJobRequest;
 import com.example.asyncjobs.dto.SubmitJobResponse;
 import com.example.asyncjobs.model.Job;
 import com.example.asyncjobs.model.JobStatus;
+import com.example.asyncjobs.model.OutboxEvent;
+import com.example.asyncjobs.model.OutboxEventType;
 import com.example.asyncjobs.repository.JobRepository;
 import com.example.asyncjobs.repository.OutboxEventRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,8 +23,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -71,6 +77,33 @@ class JobServiceTest {
 
         assertEquals(jobId, response.jobId());
         assertEquals(JobStatus.QUEUED, response.status());
+        verify(jobRepository, never()).save(any());
+    }
+
+    @Test
+    void submitJobCreatesJobAndBothOutboxEvents() {
+        when(outboxService.createLifecycleEvent(any(), eq(OutboxEventType.JOB_SUBMITTED), any()))
+                .thenReturn(new OutboxEvent());
+        when(outboxService.createExecutionRequestedEvent(any(), eq(1), eq(5), any()))
+                .thenReturn(new OutboxEvent());
+
+        ObjectNode payload = objectMapper.createObjectNode().put("type", "success");
+        SubmitJobRequest request = new SubmitJobRequest(payload, 5, 3, 10, null);
+        SubmitJobResponse response = jobService.submitJob(request);
+
+        assertEquals(JobStatus.QUEUED, response.status());
+        verify(jobRepository).save(any(Job.class));
+        verify(outboxEventRepository, times(2)).save(any(OutboxEvent.class));
+        verify(outboxService).createLifecycleEvent(any(), eq(OutboxEventType.JOB_SUBMITTED), any());
+        verify(outboxService).createExecutionRequestedEvent(any(), eq(1), eq(5), any());
+    }
+
+    @Test
+    void oversizedPayloadRejected() {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("data", "x".repeat(70000));
+        SubmitJobRequest request = new SubmitJobRequest(payload, 5, 3, 10, null);
+        assertThrows(ValidationException.class, () -> jobService.submitJob(request));
         verify(jobRepository, never()).save(any());
     }
 }

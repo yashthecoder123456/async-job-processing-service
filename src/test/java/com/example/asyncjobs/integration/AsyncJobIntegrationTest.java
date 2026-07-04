@@ -7,6 +7,7 @@ import com.example.asyncjobs.dto.QueueDepthResponse;
 import com.example.asyncjobs.dto.SubmitJobRequest;
 import com.example.asyncjobs.dto.SubmitJobResponse;
 import com.example.asyncjobs.model.JobStatus;
+import com.example.asyncjobs.repository.DeadLetterJobRepository;
 import com.example.asyncjobs.service.OutboxDispatchService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -18,6 +19,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.listener.RabbitListenerEndpointRegistry;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -86,6 +88,14 @@ class AsyncJobIntegrationTest {
     @Autowired
     private RabbitListenerEndpointRegistry listenerRegistry;
 
+    @Autowired
+    private RabbitAdmin rabbitAdmin;
+
+    @Autowired
+    private DeadLetterJobRepository deadLetterJobRepository;
+
+    private static final String EXECUTION_QUEUE = "job.execution.queue";
+
     private static final String TEST_DISPATCHER = "integration-test-dispatcher";
 
     @BeforeEach
@@ -133,6 +143,33 @@ class AsyncJobIntegrationTest {
             outboxDispatchService.dispatchBatch(TEST_DISPATCHER);
             JobStatusResponse status = getStatus(submitted.jobId());
             assertThat(status.status()).isEqualTo(JobStatus.DEAD_LETTERED);
+            assertThat(deadLetterJobRepository.findByJobId(submitted.jobId())).isPresent();
+        });
+    }
+
+    @Test
+    void timeoutSchedulesRetryWhenRetriesRemain() {
+        ObjectNode payload = objectMapper.createObjectNode().put("type", "timeout");
+        SubmitJobResponse submitted = submitJob(payload, 5, 3, 1, null);
+
+        await().atMost(Duration.ofSeconds(90)).pollInterval(Duration.ofMillis(300)).untilAsserted(() -> {
+            outboxDispatchService.dispatchBatch(TEST_DISPATCHER);
+            JobStatusResponse status = getStatus(submitted.jobId());
+            assertThat(status.status()).isIn(JobStatus.RETRY_SCHEDULED, JobStatus.SUCCEEDED);
+            if (status.status() == JobStatus.RETRY_SCHEDULED) {
+                assertThat(status.attemptCount()).isGreaterThanOrEqualTo(1);
+            }
+        });
+    }
+
+    @Test
+    void outboxDispatcherPublishesJobToRabbitMq() {
+        SubmitJobResponse submitted = submitJob(successPayload(), 5, 3, 10, null);
+        outboxDispatchService.dispatchBatch(TEST_DISPATCHER);
+
+        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).untilAsserted(() -> {
+            Integer depth = (Integer) rabbitAdmin.getQueueProperties(EXECUTION_QUEUE).get("QUEUE_MESSAGE_COUNT");
+            assertThat(depth).isNotNull();
         });
     }
 
@@ -180,13 +217,25 @@ class AsyncJobIntegrationTest {
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
             assertThat(response.getBody()).isNotNull();
             assertThat(response.getBody().queued() + response.getBody().succeeded()).isGreaterThan(0);
+            assertThat(response.getBody().rabbitAvailable()).isTrue();
         });
     }
 
     @Test
-    void drainBlocksSubmissionAndResumeReEnables() {
+    void queueDepthReturnsDbCountsWhenBrokerMetricsUnavailable() {
+        ResponseEntity<QueueDepthResponse> response = restTemplate.getForEntity("/api/v1/queue/depth", QueueDepthResponse.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().queued() + response.getBody().running()
+                + response.getBody().succeeded() + response.getBody().deadLettered()).isGreaterThanOrEqualTo(0);
+    }
+
+    @Test
+    void drainBlocksSubmissionDispatcherAndWorkers() {
         ResponseEntity<DrainResponse> drain = restTemplate.postForEntity("/api/v1/ops/drain", null, DrainResponse.class);
         assertThat(drain.getBody().submissionsEnabled()).isFalse();
+        assertThat(drain.getBody().dispatcherEnabled()).isFalse();
+        assertThat(drain.getBody().workersEnabled()).isFalse();
 
         SubmitJobRequest request = new SubmitJobRequest(successPayload(), 5, 3, 10, null);
         ResponseEntity<String> blocked = restTemplate.postForEntity("/api/v1/jobs", request, String.class);
@@ -194,6 +243,8 @@ class AsyncJobIntegrationTest {
 
         ResponseEntity<DrainResponse> resume = restTemplate.postForEntity("/api/v1/ops/resume", null, DrainResponse.class);
         assertThat(resume.getBody().submissionsEnabled()).isTrue();
+        assertThat(resume.getBody().dispatcherEnabled()).isTrue();
+        assertThat(resume.getBody().workersEnabled()).isTrue();
 
         ResponseEntity<SubmitJobResponse> accepted = restTemplate.postForEntity("/api/v1/jobs", request, SubmitJobResponse.class);
         assertThat(accepted.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);

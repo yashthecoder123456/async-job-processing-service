@@ -19,6 +19,29 @@ flowchart LR
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for retry, dead-letter, drain, cancel, and outbox paths.
 
+## Sequence (submit → execute → poll)
+
+```mermaid
+sequenceDiagram
+  participant C as Client
+  participant A as API
+  participant D as PostgreSQL
+  participant O as Outbox Dispatcher
+  participant R as RabbitMQ
+  participant W as Worker
+
+  C->>A: POST /jobs
+  A->>D: TX insert job + outbox
+  A-->>C: 202 QUEUED
+  O->>D: poll outbox
+  O->>R: publish execution event
+  W->>R: consume
+  W->>D: claim + update status
+  C->>A: GET /jobs/id
+  A->>D: read jobs
+  A-->>C: SUCCEEDED + result
+```
+
 ## Why this design
 
 - **RabbitMQ** is the execution queue for scalable worker consumption and priority routing.
